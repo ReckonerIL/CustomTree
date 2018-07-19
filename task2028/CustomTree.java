@@ -1,5 +1,6 @@
 package com.javarush.task.task20.task2028;
 
+import java.io.IOException;
 import java.io.Serializable;
 import java.util.*;
 
@@ -14,25 +15,25 @@ public class CustomTree<T> extends AbstractList<T> implements Cloneable, Seriali
     }
 
     @Override
-    public boolean add(T s) {
-        ElementAdder<T> adder = new ElementAdder<>(s);
-        root.inspectWidth(adder);
+    public boolean add(T elem) {
+        ElementAdder<T> adder = new ElementAdder<>(elem);
+        root.inspectWidth(adder, true);
         if (adder.isAdded) return true;
-        ForcedElementAdder<T> forcedAdder = new ForcedElementAdder<>(s);
-        root.inspectWidth(forcedAdder);
+        ForcedElementAdder<T> forcedAdder = new ForcedElementAdder<>(elem);
+        root.inspectWidth(forcedAdder, true);
         return forcedAdder.isAdded;
     }
 
     @Override
     public int size() {
         SizeReviser reviser = new SizeReviser<>();
-        root.inspectDepth(reviser);
+        root.inspectDepth(reviser, false);
         return reviser.size;
     }
 
-    public T getParent(T s) {
-        ParentSearcher<T> searcher = new ParentSearcher<>(s);
-        root.inspectDepth(searcher);
+    public T getParent(T elem) {
+        ParentSearcher<T> searcher = new ParentSearcher<>(elem);
+        root.inspectDepth(searcher, false);
         return searcher.result;
     }
 
@@ -40,7 +41,7 @@ public class CustomTree<T> extends AbstractList<T> implements Cloneable, Seriali
     public boolean remove(Object o) {
         try {
             ElementRemover<T> remover = new ElementRemover<>((T) o);
-            root.inspectDepth(remover);
+            root.inspectDepth(remover, false);
             return remover.isRemoved;
         } catch (ClassCastException e) {
             throw new UnsupportedOperationException();
@@ -85,13 +86,11 @@ public class CustomTree<T> extends AbstractList<T> implements Cloneable, Seriali
     static class Entry<T> implements Serializable {
         T element;
         int lineNumber;
-        boolean availableToAddLeftChildren, availableToAddRightChildren;
+        boolean availableToAddLeftChildren = true, availableToAddRightChildren = true;
         Entry<T> parent, leftChild, rightChild;
 
         public Entry(T element) {
             this.element = element;
-            availableToAddLeftChildren = true;
-            availableToAddRightChildren = true;
         }
 
         void checkChildren() {
@@ -103,30 +102,36 @@ public class CustomTree<T> extends AbstractList<T> implements Cloneable, Seriali
             return availableToAddLeftChildren || availableToAddRightChildren;
         }
 
-        Command inspectDepth(CustomTreeVisitor<Entry<T>> visitor) {
-            Command cmd = visitor.visit(this);
-            if (cmd == Command.TERMINATE) return cmd;
-            cmd = leftChild != null ? leftChild.inspectDepth(visitor) : Command.CONTINUE;
-            if (cmd == Command.TERMINATE) return cmd;
-            return rightChild != null ? rightChild.inspectDepth(visitor) : Command.CONTINUE;
+        void inspectDepth(EntryVisitor<Entry<T>> visitor, boolean visitRoot) {
+            LinkedList<Entry<T>> entries = new LinkedList<>();
+            Command cmd = visitRoot ? visitor.visit(this) : Command.CONTINUE;
+            if (this.rightChild != null) entries.offerLast(this.rightChild);
+            if (this.leftChild != null) entries.offerLast(this.leftChild);
+
+            Entry<T> entry;
+            while (cmd != Command.TERMINATE && (entry = entries.pollLast()) != null) {
+                if ((cmd = visitor.visit(entry)) == Command.TERMINATE) return;
+                if (entry.rightChild != null) entries.offerLast(entry.rightChild);
+                if (entry.leftChild != null) entries.offerLast(entry.leftChild);
+            }
         }
 
-        Command inspectWidth(CustomTreeVisitor<Entry<T>> visitor) {
-            Queue<Entry<T>> entries = new ArrayDeque<>();
-            Command cmd = Command.CONTINUE;
-            Entry<T> entry;
+        void inspectWidth(EntryVisitor<Entry<T>> visitor, boolean visitRoot) {
+            LinkedList<Entry<T>> entries = new LinkedList<>();
+            Command cmd = visitRoot ? visitor.visit(this) : Command.CONTINUE;
+            if (this.leftChild != null) entries.offerLast(this.leftChild);
+            if (this.rightChild != null) entries.offerLast(this.rightChild);
 
-            entries.add(this);
-            while (cmd != Command.TERMINATE && (entry = entries.poll()) != null) {
-                if (entry.leftChild != null) entries.offer(entry.leftChild);
-                if (entry.rightChild != null) entries.offer(entry.rightChild);
-                cmd = visitor.visit(entry);
+            Entry<T> entry = null;
+            while (cmd != Command.TERMINATE && (entry = entries.pollFirst()) != null) {
+                if ((cmd = visitor.visit(entry)) == Command.TERMINATE) return;
+                if (entry.leftChild != null) entries.offerLast(entry.leftChild);
+                if (entry.rightChild != null) entries.offerLast(entry.rightChild);
             }
-            return cmd;
         }
     }
 
-    private static class ElementAdder<T> implements CustomTreeVisitor<Entry<T>> {
+    private static class ElementAdder<T> implements EntryVisitor<Entry<T>> {
         T target;
         boolean isAdded;
 
@@ -167,7 +172,7 @@ public class CustomTree<T> extends AbstractList<T> implements Cloneable, Seriali
         }
     }
 
-    private static class ParentSearcher<T> implements CustomTreeVisitor<Entry<T>> {
+    private static class ParentSearcher<T> implements EntryVisitor<Entry<T>> {
         private T result;
         private T target;
 
@@ -185,17 +190,17 @@ public class CustomTree<T> extends AbstractList<T> implements Cloneable, Seriali
         }
     }
 
-    private static class SizeReviser<T> implements CustomTreeVisitor<Entry<T>> {
+    private static class SizeReviser<T> implements EntryVisitor<Entry<T>> {
         private int size = 0;
 
         @Override
         public Command visit(Entry<T> subject) {
-            if (subject.parent != null) size++;
+            size++;
             return Command.CONTINUE;
         }
     }
 
-    private static class ElementRemover<T> implements CustomTreeVisitor<Entry<T>> {
+    private static class ElementRemover<T> implements EntryVisitor<Entry<T>> {
         T target;
         boolean isRemoved;
 
